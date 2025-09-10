@@ -1,0 +1,15 @@
+postgresql:
+  host: "localhost"
+  port: "5432"
+  user: "alabeshko"
+  password: "613panda"
+  database: "orders_db"
+
+http_server:
+  host: ""
+  port: "8080"
+
+kafka:
+  brokers: "localhost:9092"
+  topic: "orders"
+  group_id: "rder-service-groupo"
