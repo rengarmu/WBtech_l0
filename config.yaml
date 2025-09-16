@@ -1,8 +1,8 @@
 postgresql:
   host: "localhost"
   port: "5432"
-  user: "alabeshko"
-  password: "613panda"
+  user: "tmp"
+  password: "test90123"
   database: "orders_db"
 
 http_server:
@@ -12,4 +12,4 @@ http_server:
 kafka:
   brokers: "localhost:9092"
   topic: "orders"
-  group_id: "rder-service-groupo"
+  group_id: "order-service-group"
