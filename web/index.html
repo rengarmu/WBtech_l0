@@ -1,48 +1,90 @@
 <!doctype html>
-<html>
+<html lang="ru">
 
 <head>
     <meta charset="utf-8" />
-    <title>Order lookup</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Order Service - Просмотр заказов</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
-            margin: 40px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+            padding: 20px;
+            text-align: center;
         }
 
-        label,
-        input {
-            font-size: 1.1em;
+        .container {
+            max-width: 600px;
+            margin: 50px auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
 
-        #result {
-            margin-top: 20px;
-            white-space: pre-wrap;
-            background: #f8f8f8;
-            padding: 10px;
-            border-radius: 6px;
+        h1 {
+            color: #3498db;
+            margin-bottom: 20px;
+        }
+
+        .search-form {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .search-input {
+            flex: 1;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        .search-btn {
+            padding: 12px 24px;
+            background-color: #3498db;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .search-btn:hover {
+            background-color: #2980b9;
         }
     </style>
 </head>
 
 <body>
-    <h1>Order lookup</h1>
-    <label for="orderId">Order UID:</label>
-    <input id="orderId" placeholder="b563..." size="40" />
-    <button id="btn">Get order</button>
-    <div id="result"></div>
+    <div class="container">
+        <h1>Order Service</h1>
+        <p>Микросервис для просмотра информации о заказах</p>
+
+        <div class="search-form">
+            <input type="text" id="orderId" class="search-input"
+                placeholder="Введите Order UID (например, b563feb7b2b84b6test)" />
+            <button onclick="searchOrder()" class="search-btn">Найти заказ</button>
+        </div>
+    </div>
 
     <script>
-        document.getElementById('btn').addEventListener('click', async () => {
-            const id = document.getElementById('orderId').value.trim();
-            if (!id) { alert('Enter id'); return; }
-            const res = await fetch('/order/' + encodeURIComponent(id));
-            const out = document.getElementById('result');
-            if (res.status === 200) {
-                const json = await res.json();
-                out.textContent = JSON.stringify(json, null, 2);
+        function searchOrder() {
+            const orderId = document.getElementById('orderId').value.trim();
+            if (orderId) {
+                window.location.href = 'http://localhost:8080/order/' + encodeURIComponent(orderId);
             } else {
-                out.textContent = 'Error: ' + res.status + ' - ' + await res.text();
+                alert('Пожалуйста, введите Order UID');
+            }
+        }
+
+        // Поиск по Enter
+        document.getElementById('orderId').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                searchOrder();
             }
         });
     </script>

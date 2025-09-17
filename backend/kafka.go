@@ -9,7 +9,7 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-// ConsumeKafka — подписываемся на Kafka и обрабатываем новые заказы
+// ConsumeKafka подключаемся к Kafka и обрабатываем новые заказы
 func ConsumeKafka(cfg Config, db *sql.DB, cache *OrderCache) {
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: []string{cfg.Kafka.Brokers},
@@ -19,15 +19,17 @@ func ConsumeKafka(cfg Config, db *sql.DB, cache *OrderCache) {
 	defer r.Close()
 
 	for {
-		m, err := r.ReadMessage(context.Background())
+		// FetchMessage для контроля над коммитами
+		m, err := r.FetchMessage(context.Background())
 		if err != nil {
-			log.Printf("Kafka read error: %v", err)
+			log.Printf("Kafka fetch error: %v", err)
 			continue
 		}
 
 		var order Order
 		if err := json.Unmarshal(m.Value, &order); err != nil {
 			log.Printf("Invalid JSON, skipping: %v", err)
+			// Пропускаем некорректные сообщения, но не коммитим их
 			continue
 		}
 
@@ -37,15 +39,23 @@ func ConsumeKafka(cfg Config, db *sql.DB, cache *OrderCache) {
 			continue
 		}
 
-		// Сохраняем заказ в транзакции (атомарно)
+		// Сохраняем заказ в транзакции
 		err = SaveOrderTx(db, order)
 		if err != nil {
 			log.Printf("Failed to save order %s: %v", order.OrderUID, err)
+			// Не коммитим оффсет при ошибке сохранения - сообщение будет обработано повторно
 			continue
 		}
 
 		// Обновляем кеш
 		cache.Set(order)
-		log.Printf("Order %s processed and cached", order.OrderUID)
+		log.Printf("Order %s saved to DB", order.OrderUID)
+
+		// Явно коммитим оффсет только после успешного сохранения в БД
+		if err := r.CommitMessages(context.Background(), m); err != nil {
+			log.Printf("Failed to commit message for order %s: %v", order.OrderUID, err)
+		} else {
+			log.Printf("Order %s processed and committed", order.OrderUID)
+		}
 	}
 }

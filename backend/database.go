@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -109,8 +110,17 @@ func SaveOrderTx(db *sql.DB, order Order) error {
 func GetOrderFromDB(db *sql.DB, orderUID string) (Order, error) {
 	var order Order
 
-	// Получаем данные заказа
-	err := db.QueryRow(`
+	// Начинаем транзакцию с уровнем изоляции Repeatable Read
+	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{
+		Isolation: sql.LevelRepeatableRead,
+	})
+	if err != nil {
+		return order, err
+	}
+	defer tx.Rollback() // Safe to call if tx is committed
+
+	// Получаем данные заказа в транзакции
+	err = tx.QueryRow(`
         SELECT order_uid, track_number, entry, locale, internal_signature,
                customer_id, delivery_service, shardkey, sm_id, date_created, oof_shard
         FROM orders WHERE order_uid=$1`, orderUID).Scan(
@@ -122,7 +132,7 @@ func GetOrderFromDB(db *sql.DB, orderUID string) (Order, error) {
 	}
 
 	// Доставка
-	err = db.QueryRow(`
+	err = tx.QueryRow(`
         SELECT name, phone, zip, city, address, region, email
         FROM deliveries WHERE order_uid=$1`, orderUID).Scan(
 		&order.Delivery.Name, &order.Delivery.Phone, &order.Delivery.Zip,
@@ -133,7 +143,7 @@ func GetOrderFromDB(db *sql.DB, orderUID string) (Order, error) {
 	}
 
 	// Оплата
-	err = db.QueryRow(`
+	err = tx.QueryRow(`
         SELECT transaction, request_id, currency, provider,
                amount, payment_dt, bank, delivery_cost, goods_total, custom_fee
         FROM payments WHERE order_uid=$1`, orderUID).Scan(
@@ -146,7 +156,7 @@ func GetOrderFromDB(db *sql.DB, orderUID string) (Order, error) {
 	}
 
 	// Товары
-	rows, err := db.Query(`
+	rows, err := tx.Query(`
         SELECT chrt_id, track_number, price, rid, name, sale, size,
                total_price, nm_id, brand, status
         FROM items WHERE order_uid=$1`, orderUID)
@@ -166,6 +176,11 @@ func GetOrderFromDB(db *sql.DB, orderUID string) (Order, error) {
 		items = append(items, it)
 	}
 	order.Items = items
+
+	// Фиксируем транзакцию
+	if err := tx.Commit(); err != nil {
+		return order, err
+	}
 
 	return order, nil
 }
