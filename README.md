@@ -28,7 +28,7 @@ WBtech_l0/
 │   ├── cache.go  
 │   ├── config.go  
 │   ├── database.go  
-│   ├── model.go 
+│   ├── model.go  
 │   └── kafka.go  
 ├── web/   
 │   └── index.html  
