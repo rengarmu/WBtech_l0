@@ -20,21 +20,39 @@
 **PostgreSQL** - реляционная база данных  
 **Apache Kafka** - брокер сообщений
 
-WBtech_l0/  
-├── cmd/  
-│   └── main.go  
-├── /backend   
-│   ├── order_handler.go  
-│   ├── cache.go  
-│   ├── config.go  
-│   ├── database.go  
-│   ├── model.go  
-│   └── kafka.go  
-├── web/   
-│   └── index.html  
-├── sql_orders.sql  
-├── go.mod  
-└── README.md  
+WBtech_l0/
+├── cmd/
+│   ├── api/
+│   │   └── main.go   
+│   └── seed/
+│       └── main.go            
+├── internal/
+│   ├── domain/
+│   │   └── order.go                 
+│   ├── usecase/
+│   │   └── kafka/
+│   │       └── consumer.go             
+│   ├── repository/
+│   │   ├── postgres/
+│   │   │   └── order_repository.go          
+│   │   └── cache/
+│   │       └── memory_cache.go      
+│   ├── delivery/
+│   │   └── http/
+│   │       ├── handler.go
+│   │       └── server.go
+│   └── config/
+│       └── config.go                     
+├── web/
+│   ├── index.html
+│   └── order_template.html
+├── configs/
+│   └── config.yaml                        
+├── migrations/
+│   └── init.sql                            
+├── go.mod
+├── go.sum
+└── README.md
 
 
 ### Запуск

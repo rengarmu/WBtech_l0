@@ -1,4 +1,4 @@
-package backend
+package config
 
 import (
 	"log"
@@ -36,8 +36,9 @@ type Config struct {
 }
 
 // Загружаем конфигурацию из файла config.yaml с помощью Viper
-func LoadConfig(path string) Config {
+func LoadConfig(path string) *Config {
 	viper.SetConfigFile(path)
+	viper.AutomaticEnv() // поддержка переменных окружения
 	err := viper.ReadInConfig()
 	if err != nil {
 		log.Fatalf("Error reading config file: %v", err)
@@ -61,5 +62,5 @@ func LoadConfig(path string) Config {
 		GroupID: viper.GetString("kafka.group_id"),
 	}
 
-	return cfg
+	return &cfg
 }

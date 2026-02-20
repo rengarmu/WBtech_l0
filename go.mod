@@ -2,11 +2,10 @@ module WBtech_l0
 
 go 1.23.0
 
-toolchain go1.24.7
-
 require (
-	github.com/lib/pq v1.10.9
-	github.com/segmentio/kafka-go v0.4.49
+	github.com/google/uuid v1.6.0
+	github.com/lib/pq v1.11.2
+	github.com/segmentio/kafka-go v0.4.47
 	github.com/spf13/viper v1.21.0
 )
 

@@ -1,4 +1,4 @@
-package backend
+package postgres
 
 import (
 	"context"
@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"log"
 
+	"WBtech_l0/internal/config"
+	"WBtech_l0/internal/domain"
+	"WBtech_l0/internal/repository/cache"
+
 	_ "github.com/lib/pq"
 )
 
 // InitDB — подключение к PostgreSQL
-func InitDB(cfg Config) *sql.DB {
+func InitDB(cfg config.Config) *sql.DB {
 	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		cfg.Postgres.Host, cfg.Postgres.Port, cfg.Postgres.User, cfg.Postgres.Password, cfg.Postgres.Database)
 	db, err := sql.Open("postgres", connStr)
@@ -21,7 +25,7 @@ func InitDB(cfg Config) *sql.DB {
 }
 
 // LoadCacheFromDB — восстанавливает кеш из БД при старте
-func LoadCacheFromDB(db *sql.DB, cache *OrderCache) error {
+func LoadCacheFromDB(db *sql.DB, cache *cache.OrderCache) error {
 	rows, err := db.Query("SELECT order_uid FROM orders")
 	if err != nil {
 		return err
@@ -42,10 +46,14 @@ func LoadCacheFromDB(db *sql.DB, cache *OrderCache) error {
 }
 
 // SaveOrderTx — сохраняет заказ в БД в транзакции (атомарно)
-func SaveOrderTx(db *sql.DB, order Order) error {
+func SaveOrderTx(db *sql.DB, order domain.Order) error {
+	// Валидация заказа перед сохранением
+	if err := order.Validate(); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
 	tx, err := db.Begin()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
 	// Если что-то пойдет не так — откат
@@ -107,8 +115,13 @@ func SaveOrderTx(db *sql.DB, order Order) error {
 }
 
 // GetOrderFromDB — достает заказ по order_uid
-func GetOrderFromDB(db *sql.DB, orderUID string) (Order, error) {
-	var order Order
+func GetOrderFromDB(db *sql.DB, orderUID string) (domain.Order, error) {
+	var order domain.Order
+
+	// Проверяем валидность orderUID
+	if orderUID == "" || len(orderUID) > 100 {
+		return order, fmt.Errorf("invalid order_uid format")
+	}
 
 	// Начинаем транзакцию с уровнем изоляции Repeatable Read
 	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{
@@ -165,9 +178,9 @@ func GetOrderFromDB(db *sql.DB, orderUID string) (Order, error) {
 	}
 	defer rows.Close()
 
-	var items []Item
+	var items []domain.Item
 	for rows.Next() {
-		var it Item
+		var it domain.Item
 		err := rows.Scan(&it.ChrtID, &it.TrackNumber, &it.Price, &it.Rid, &it.Name,
 			&it.Sale, &it.Size, &it.TotalPrice, &it.NmID, &it.Brand, &it.Status)
 		if err != nil {
