@@ -87,14 +87,13 @@ func main() {
 func createTestOrder(index int) domain.Order {
 	// Генерируем уникальный ID
 	orderUID := uuid.New().String()[:8] + "-test-" + time.Now().Format("150405")
-
 	return domain.Order{
 		OrderUID:    orderUID,
 		TrackNumber: "WB-TEST-" + time.Now().Format("20060102") + "-" + uuid.New().String()[:6],
 		Entry:       "WBIL",
 		Delivery: domain.Delivery{
 			Name:    "Тестовый Пользователь",
-			Phone:   "+7" + generatePhoneNumber(index),
+			Phone:   "+7" + generatePhoneNumber(),
 			Zip:     "123" + generateDigits(3),
 			City:    "Москва",
 			Address: "ул. Тестовая, д. " + generateDigits(2) + ", кв. " + generateDigits(2),
@@ -153,7 +152,7 @@ func createTestOrder(index int) domain.Order {
 }
 
 // generatePhoneNumber генерирует тестовый номер телефона
-func generatePhoneNumber(index int) string {
+func generatePhoneNumber() string {
 	return "900" + generateDigits(7)
 }
 
@@ -163,7 +162,6 @@ func generateDigits(n int) string {
 	result := make([]byte, n)
 	for i := range result {
 		result[i] = digits[time.Now().UnixNano()%10]
-		time.Sleep(1) // чтобы избежать одинаковых чисел
 	}
 	return string(result)
 }

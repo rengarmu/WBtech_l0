@@ -1,64 +1,70 @@
 # WBtech_l0. Order Service
 
-
-Микросервис для обработки и отображения данных о заказах, написанный на Go.
+Микросервис для обработки и отображения данных о заказах, написанный на Go. Сервис получает данные из Kafka, сохраняет в PostgreSQL, кэширует в памяти и предоставляет как HTML интерфейс, так и JSON API.
 
 ### Функциональность
-- Получение сообщений о заказах из Kafka
+- **Получение сообщений** о заказах из Kafka с автоматическим подтверждением
+- **Сохранение данных** в PostgreSQL с использованием транзакций
+- **In-memory кэширование** с TTL (время жизни) для быстрого доступа
+- **Восстановление кеша** из БД при перезапуске сервиса
+- **HTML интерфейс** для визуального просмотра заказов
+- **JSON API** с форматированным выводом для интеграций
+- **Graceful shutdown** для корректного завершения работы
+- **Валидация данных** на уровне доменной модели
+- **Health check** эндпоинт для мониторинга
 
-- Сохранение данных в PostgreSQL
-
-- In-memory кэширование для быстрого доступа
-
-- HTTP API для получения информации о заказах
-
-- Веб-интерфейс для поиска заказов
 
 ### Технологии:  
+- **Go 1.23+** - основной язык программирования
+- **PostgreSQL** - реляционная база данных
+- **Apache Kafka** - брокер сообщений
+- **Docker** - контейнеризация (опционально)
 
-**Go** - основной язык программирования  
-**PostgreSQL** - реляционная база данных  
-**Apache Kafka** - брокер сообщений
-
-WBtech_l0/
-├── cmd/
-│   ├── api/
-│   │   └── main.go   
-│   └── seed/
-│       └── main.go            
-├── internal/
-│   ├── domain/
-│   │   └── order.go                 
-│   ├── usecase/
-│   │   └── kafka/
-│   │       └── consumer.go             
-│   ├── repository/
-│   │   ├── postgres/
-│   │   │   └── order_repository.go          
-│   │   └── cache/
-│   │       └── memory_cache.go      
-│   ├── delivery/
-│   │   └── http/
-│   │       ├── handler.go
-│   │       └── server.go
-│   └── config/
-│       └── config.go                     
-├── web/
-│   ├── index.html
-│   └── order_template.html
-├── configs/
-│   └── config.yaml                        
-├── migrations/
-│   └── init.sql                            
-├── go.mod
-├── go.sum
-└── README.md
+WBtech_l0/  
+├── cmd/  
+│ ├── api/  
+│ │ └── main.go             # Точка входа API сервера  
+│ └── seed/  
+│ └── main.go               # Скрипт для заполнения тестовыми данными  
+├── internal/  
+│ ├── domain/  
+│ │ └── order.go            # Модели данных и валидация  
+│ ├── usecase/  
+│ │ └── kafka/  
+│ │ └── consumer.go         # Kafka consumer  
+│ ├── repository/  
+│ │ ├── postgres/  
+│ │ │ └── order_repo.go     # Работа с БД  
+│ │ └── cache/  
+│ │ └── memory_cache.go     # In-memory кэш  
+│ ├── delivery/  
+│ │ └── http/  
+│ │ ├── handler.go          # HTML обработчики  
+│ │ ├── json_handler.go     # JSON API обработчики  
+│ │ └── server.go           # HTTP сервер  
+│ └── config/  
+│ └── config.go             # Конфигурация  
+├── web/  
+│ ├── index.html            # Главная страница  
+│ └── order_template.html   # Шаблон для отображения заказа  
+├── configs/  
+│ └── config.yaml           # Конфигурационный файл  
+├── migrations/  
+│ └── init.sql              # SQL для создания таблиц  
+├── Makefile                # Команды для управления проектом  
+├── go.mod  
+├── go.sum  
+└── README.md  
 
 
 ### Запуск
 
 **Запуск PostgreSQL:**  
-`sudo service postgresql start`
+ Создание базы данных и пользователя  
+`sudo -u postgres psql -f migrations/init.sql`  
+
+Или через make:  
+****make migrate****
 
 **Запуск Kafka:**
 ```
@@ -74,17 +80,15 @@ bin/kafka-server-start.sh config/server.properties
 **Запуск сервиса:**  
 `go run cmd/main.go`
 
+ Или через make  
+****make run-api****
+
 
 ### Использование:
-1. Получить информацию о заказе через **HTTP API**:  
-`curl http://localhost:8080/order/<order_uid>`
-2. Откройте в браузере:  
-http://localhost:8080/order/<order_uid>
+1. Получение заказа в JSON:  
+`curl http://localhost:8080/api/order/<order_uid>`  
 
-### Для тестирования:
-После запуска скрипта вы можете проверить работу:
-
-**Через веб-интерфейс:**   
+2. Через веб-интерфейс:
 Откройте http://localhost:8080 и введите один из ID:
 ```
 test-order-001
@@ -94,8 +98,25 @@ test-order-empty-items
 test-order-multiple-items
 ```
 
-**Через HTTP API:**
+### Makefile команды
 
-bash  
-`curl http://localhost:8080/order/test-order-001`  
-`curl http://localhost:8080/order/test-order-multiple-items`
+|Команда|Описание|
+|:---------------|:---------|
+|make run-api| Запуск API сервера|
+|make run-seed|	Заполнение БД тестовыми данными|
+|make migrate| Применение миграций|
+|make build| Сборка бинарных файлов|
+|make clean| Очистка бинарных файлов|
+|make tidy| Очистка go.mod|
+
+
+### Особенности реализации
+- Кэширование: In-memory кэш с TTL 1 час и максимальным размером 1000 записей
+
+- Валидация: Проверка email, обязательных полей, форматов данных
+
+- Транзакции: Атомарное сохранение заказа со всеми связанными данными
+
+- Graceful shutdown: Корректное завершение при получении сигналов SIGINT/SIGTERM
+
+- Обработка ошибок: Игнорирование невалидных сообщений Kafka, повторные попытки при сбоях

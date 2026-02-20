@@ -16,7 +16,8 @@
         }
 
         .container {
-            max-width: 600px;
+            max-width: 800px;
+            /* ИЗМЕНЕНО: увеличена ширина для JSON */
             margin: 50px auto;
             background: white;
             padding: 30px;
@@ -27,6 +28,28 @@
         h1 {
             color: #3498db;
             margin-bottom: 20px;
+        }
+
+        /* ИЗМЕНЕНО: Добавлены стили для вкладок */
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            justify-content: center;
+        }
+
+        .tab-btn {
+            padding: 10px 20px;
+            border: none;
+            background: #f0f0f0;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        .tab-btn.active {
+            background: #3498db;
+            color: white;
         }
 
         .search-form {
@@ -56,6 +79,58 @@
         .search-btn:hover {
             background-color: #2980b9;
         }
+
+        /* ИЗМЕНЕНО: Добавлены стили для JSON результатов */
+        .result {
+            margin-top: 30px;
+            text-align: left;
+            border-top: 2px solid #eee;
+            padding-top: 20px;
+        }
+
+        .json-result {
+            background: #f8f8f8;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+
+        .error {
+            color: #e74c3c;
+            padding: 10px;
+            background: #fdeaea;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+
+        /* ИЗМЕНЕНО: Добавлены стили для информации об API */
+        .api-info {
+            margin-top: 30px;
+            padding: 15px;
+            background: #f0f7ff;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #666;
+        }
+
+        .api-info code {
+            background: #fff;
+            padding: 2px 6px;
+            border-radius: 3px;
+            border: 1px solid #ddd;
+        }
+
+        .api-endpoints {
+            margin-top: 10px;
+            list-style: none;
+            padding: 0;
+        }
+
+        .api-endpoints li {
+            margin: 5px 0;
+        }
     </style>
 </head>
 
@@ -64,27 +139,117 @@
         <h1>Order Service</h1>
         <p>Микросервис для просмотра информации о заказах</p>
 
-        <div class="search-form">
-            <input type="text" id="orderId" class="search-input"
-                placeholder="Введите Order UID (например, b563feb7b2b84b6test)" />
-            <button onclick="searchOrder()" class="search-btn">Найти заказ</button>
+        <!-- ИЗМЕНЕНО: Добавлены вкладки для переключения между HTML и JSON -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('html')">HTML View</button>
+            <button class="tab-btn" onclick="switchTab('json')">JSON API</button>
+        </div>
+
+        <!-- ИЗМЕНЕНО: HTML View Tab (существующий функционал) -->
+        <div id="html-tab">
+            <p>Просмотр заказа в HTML формате</p>
+            <div class="search-form">
+                <input type="text" id="htmlOrderId" class="search-input"
+                    placeholder="Введите Order UID (например, b563feb7b2b84b6test)" />
+                <button onclick="searchHTML()" class="search-btn">Найти заказ</button>
+            </div>
+        </div>
+
+        <!-- ИЗМЕНЕНО: JSON API Tab (новый функционал) -->
+        <div id="json-tab" style="display: none;">
+            <p>Получение данных заказа в JSON формате</p>
+            <div class="search-form">
+                <input type="text" id="jsonOrderId" class="search-input" placeholder="Введите Order UID" />
+                <button onclick="searchJSON()" class="search-btn">Получить JSON</button>
+            </div>
+            <div id="json-result" class="result" style="display: none;">
+                <h3>Результат:</h3>
+                <pre id="json-display" class="json-result"></pre>
+            </div>
+            <div id="json-error" class="error" style="display: none;"></div>
+        </div>
+
+        <!-- ИЗМЕНЕНО: Добавлена информация о всех доступных эндпоинтах -->
+        <div class="api-info">
+            <strong>📡 Доступные эндпоинты:</strong>
+            <ul class="api-endpoints">
+                <li><code>GET /order/{order_uid}</code> - HTML страница заказа</li>
+                <li><code>GET /api/order/{order_uid}</code> - JSON данные заказа</li>
+                <li><code>GET /api/health</code> - Проверка статуса сервиса</li>
+            </ul>
         </div>
     </div>
 
+    <!-- ИЗМЕНЕНО: Обновленный JavaScript с поддержкой JSON API -->
     <script>
-        function searchOrder() {
-            const orderId = document.getElementById('orderId').value.trim();
+        // ИЗМЕНЕНО: Функция переключения вкладок
+        function switchTab(tab) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('html-tab').style.display = 'none';
+            document.getElementById('json-tab').style.display = 'none';
+
+            if (tab === 'html') {
+                document.querySelector('.tab-btn:first-child').classList.add('active');
+                document.getElementById('html-tab').style.display = 'block';
+            } else {
+                document.querySelector('.tab-btn:last-child').classList.add('active');
+                document.getElementById('json-tab').style.display = 'block';
+            }
+        }
+
+        // ИЗМЕНЕНО: Существующая функция для HTML (переименована для ясности)
+        function searchHTML() {
+            const orderId = document.getElementById('htmlOrderId').value.trim();
             if (orderId) {
-                window.location.href = 'http://localhost:8080/order/' + encodeURIComponent(orderId);
+                window.location.href = '/order/' + encodeURIComponent(orderId);
             } else {
                 alert('Пожалуйста, введите Order UID');
             }
         }
 
-        // Поиск по Enter
-        document.getElementById('orderId').addEventListener('keypress', function (e) {
+        // ИЗМЕНЕНО: Новая функция для JSON API
+        async function searchJSON() {
+            const orderId = document.getElementById('jsonOrderId').value.trim();
+            const resultDiv = document.getElementById('json-result');
+            const errorDiv = document.getElementById('json-error');
+            const jsonDisplay = document.getElementById('json-display');
+
+            resultDiv.style.display = 'none';
+            errorDiv.style.display = 'none';
+
+            if (!orderId) {
+                errorDiv.textContent = 'Пожалуйста, введите Order UID';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/order/' + encodeURIComponent(orderId));
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    jsonDisplay.textContent = JSON.stringify(data.data, null, 2);
+                    resultDiv.style.display = 'block';
+                } else {
+                    errorDiv.textContent = data.error || 'Заказ не найден';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (err) {
+                errorDiv.textContent = 'Ошибка при запросе: ' + err.message;
+                errorDiv.style.display = 'block';
+            }
+        }
+
+        // ИЗМЕНЕНО: Поиск по Enter для обоих полей
+        document.getElementById('htmlOrderId').addEventListener('keypress', function (e) {
             if (e.key === 'Enter') {
-                searchOrder();
+                searchHTML();
+            }
+        });
+
+        document.getElementById('jsonOrderId').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                searchJSON();
             }
         });
     </script>
