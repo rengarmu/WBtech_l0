@@ -3,14 +3,14 @@ package httpdelivery
 import (
 	"database/sql"
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
-	"time" // ИЗМЕНЕНО: добавлен импорт time для health check
+	"time"
 
 	"WBtech_l0/internal/repository/cache"
 )
 
-// ИЗМЕНЕНО: Добавлена структура для стандартного JSON ответа
 // JSONResponse стандартный формат ответа API
 type JSONResponse struct {
 	Success bool        `json:"success"`
@@ -28,13 +28,15 @@ func MakeJSONOrderHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc 
 		parts := strings.Split(r.URL.Path, "/")
 		if len(parts) < 4 {
 			w.WriteHeader(http.StatusBadRequest)
-			// ИЗМЕНЕНО: используем форматированный вывод даже для ошибок
+			// Используем форматированный вывод даже для ошибок
 			enc := json.NewEncoder(w)
 			enc.SetIndent("", "  ")
-			enc.Encode(JSONResponse{
+			if err := enc.Encode(JSONResponse{
 				Success: false,
 				Error:   "order_uid required",
-			})
+			}); err != nil {
+				log.Printf("failed to encode error response: %v", err)
+			}
 			return
 		}
 		orderUID := parts[3]
@@ -44,33 +46,39 @@ func MakeJSONOrderHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc 
 			w.WriteHeader(http.StatusBadRequest)
 			enc := json.NewEncoder(w)
 			enc.SetIndent("", "  ")
-			enc.Encode(JSONResponse{
+			if err := enc.Encode(JSONResponse{
 				Success: false,
 				Error:   "Invalid order_uid format",
-			})
+			}); err != nil {
+				log.Printf("failed to encode error response: %v", err)
+			}
 			return
 		}
 
 		// Получаем заказ
-		order, found := getOrder(orderUID, cache, db)
+		order, found := getOrder(r.Context(), orderUID, cache, db)
 		if !found {
 			w.WriteHeader(http.StatusNotFound)
 			enc := json.NewEncoder(w)
 			enc.SetIndent("", "  ")
-			enc.Encode(JSONResponse{
+			if err := enc.Encode(JSONResponse{
 				Success: false,
 				Error:   "Order not found",
-			})
+			}); err != nil {
+				log.Printf("failed to encode error response: %v", err)
+			}
 			return
 		}
 
-		// ИЗМЕНЕНО: всегда форматированный вывод
+		// Всегда форматированный вывод
 		enc := json.NewEncoder(w)
 		enc.SetIndent("", "  ")
-		enc.Encode(JSONResponse{
+		if err := enc.Encode(JSONResponse{
 			Success: true,
 			Data:    order,
-		})
+		}); err != nil {
+			log.Printf("failed to encode success response: %v", err) // FIXED: log ignored error
+		}
 	}
 }
 
@@ -81,7 +89,7 @@ func MakeJSONHealthHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc
 
 		// Проверяем подключение к БД
 		dbStatus := "ok"
-		if err := db.Ping(); err != nil {
+		if err := db.PingContext(r.Context()); err != nil {
 			dbStatus = "error"
 		}
 

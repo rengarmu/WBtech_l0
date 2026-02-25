@@ -1,9 +1,3 @@
-CREATE DATABASE orders_db;
-
-create user tmp with password 'test90123';
-
-alter database orders_db owner to tmp;
-
 -- Создание таблицы заказов
 CREATE TABLE orders (
     order_uid VARCHAR(255) PRIMARY KEY not null,
@@ -64,11 +58,3 @@ CREATE TABLE items (
     brand VARCHAR(255) NOT NULL,
     status INTEGER NOT NULL
 );
-
-SELECT current_database();
-
-SELECT current_user;
-
-GRANT CONNECT ON DATABASE orders_db TO tmp;
-
-SET ROLE tmp;

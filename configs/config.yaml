@@ -13,3 +13,10 @@ kafka:
   brokers: "localhost:9092"
   topic: "orders"
   group_id: "order-service-group"
+  dlq_topic: "orders-dlq"
+
+cache:
+  default_ttl: 1h
+  max_size: 1000
+
+migrations_path: "migrations"

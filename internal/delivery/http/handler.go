@@ -1,6 +1,7 @@
 package httpdelivery
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"html/template"
@@ -45,7 +46,7 @@ func MakeOrderHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc {
 		}
 
 		// Получаем заказ
-		order, found := getOrder(orderUID, cache, db)
+		order, found := getOrder(r.Context(), orderUID, cache, db)
 		if !found {
 			renderOrderNotFound(w, orderUID)
 			return
@@ -57,7 +58,7 @@ func MakeOrderHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc {
 }
 
 // getOrder получает заказ из кеша или БД
-func getOrder(orderUID string, cache *cache.OrderCache, db *sql.DB) (domain.Order, bool) {
+func getOrder(ctx context.Context, orderUID string, cache *cache.OrderCache, db *sql.DB) (domain.Order, bool) {
 	// Пробуем из кеша
 	if cachedOrder, ok := cache.Get(orderUID); ok {
 		log.Printf("Order %s found in cache", orderUID)
@@ -65,7 +66,7 @@ func getOrder(orderUID string, cache *cache.OrderCache, db *sql.DB) (domain.Orde
 	}
 
 	// Пробуем из БД
-	order, err := postgres.GetOrderFromDB(db, orderUID)
+	order, err := postgres.GetOrderFromDB(ctx, db, orderUID)
 	if err != nil {
 		if err != sql.ErrNoRows {
 			log.Printf("Error loading order %s from DB: %v", orderUID, err)
@@ -195,7 +196,7 @@ func getTemplatePath() (string, error) {
 func loadTemplate() (*template.Template, error) {
 	templatePath, err := getTemplatePath()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get template path: %w", err)
 	}
 
 	// Получаем абсолютный путь для отладки

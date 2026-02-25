@@ -23,8 +23,18 @@ func ConsumeKafka(ctx context.Context, cfg config.Config, db *sql.DB, cache *cac
 		Topic:   cfg.Kafka.Topic,
 	})
 	defer r.Close()
-
 	log.Printf("Kafka consumer started for topic: %s", cfg.Kafka.Topic)
+
+	// Создаём writer для DLQ
+	dlqWriter := &kafka.Writer{
+		Addr:         kafka.TCP(cfg.Kafka.Brokers),
+		Topic:        cfg.Kafka.DLQTopic,
+		Balancer:     &kafka.LeastBytes{},
+		RequiredAcks: kafka.RequireOne,
+		Async:        false,
+	}
+	defer dlqWriter.Close()
+	log.Printf("DLQ topic: %s", cfg.Kafka.DLQTopic)
 
 	for {
 		select {
@@ -33,7 +43,7 @@ func ConsumeKafka(ctx context.Context, cfg config.Config, db *sql.DB, cache *cac
 			return
 		default:
 			// FetchMessage для контроля над коммитами
-			m, err := r.FetchMessage(context.Background())
+			m, err := r.FetchMessage(ctx)
 			if err != nil {
 				log.Printf("Kafka fetch error: %v", err)
 				time.Sleep(1 * time.Second) // Небольшая задержка при ошибке
@@ -66,11 +76,39 @@ func ConsumeKafka(ctx context.Context, cfg config.Config, db *sql.DB, cache *cac
 			log.Printf("Order %s saved to DB", order.OrderUID)
 
 			// Явно коммитим оффсет только после успешного сохранения в БД
-			if err := r.CommitMessages(context.Background(), m); err != nil {
+			if err := r.CommitMessages(ctx, m); err != nil {
 				log.Printf("Failed to commit message for order %s: %v", order.OrderUID, err)
 			} else {
 				log.Printf("Order %s processed and committed", order.OrderUID)
 			}
 		}
 	}
+}
+
+// Вспомогательная функция для отправки в DLQ
+func sendToDLQ(ctx context.Context, writer *kafka.Writer, originalMsg kafka.Message, reason string, details string) error {
+	dlqMsg := struct {
+		OriginalMessage json.RawMessage `json:"original_message"`
+		Reason          string          `json:"reason"`
+		Details         string          `json:"details"`
+		Timestamp       int64           `json:"timestamp"`
+	}{
+		OriginalMessage: originalMsg.Value,
+		Reason:          reason,
+		Details:         details,
+		Timestamp:       time.Now().Unix(),
+	}
+
+	data, err := json.Marshal(dlqMsg)
+	if err != nil {
+		return err
+	}
+
+	return writer.WriteMessages(ctx, kafka.Message{
+		Key:   originalMsg.Key,
+		Value: data,
+		Headers: append(originalMsg.Headers,
+			kafka.Header{Key: "dlq-reason", Value: []byte(reason)},
+		),
+	})
 }

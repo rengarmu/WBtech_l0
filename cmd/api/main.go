@@ -2,12 +2,17 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 
 	"WBtech_l0/internal/config"
 	httpdelivery "WBtech_l0/internal/delivery/http"
@@ -22,26 +27,30 @@ func main() {
 	cfg := config.LoadConfig(configPath)
 	log.Printf("Config loaded from: %s", configPath)
 
+	// Создаем контекст для graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := runMigrations(*cfg); err != nil {
+		log.Fatalf("Migration error: %v", err)
+	}
+
 	// Подключаемся к базе данных
 	db := postgres.InitDB(*cfg)
 	defer db.Close()
 
 	// Инициализируем кеш
 	orderCache := cache.NewOrderCache()
-	orderCache.SetDefaultTTL(1 * time.Hour) // Устанавливаем TTL 1 час
-	orderCache.SetMaxSize(1000)             // Максимум 5000 записей
+	orderCache.SetDefaultTTL(cfg.Cache.DefaultTTL) // Устанавливаем TTL по умолчанию
+	orderCache.SetMaxSize(cfg.Cache.MaxSize)       // Максимум записей в кеше
 
 	// Восстанавливаем кеш из БД
 	log.Println("Loading cache from database...")
-	err := postgres.LoadCacheFromDB(db, orderCache)
+	err := postgres.LoadCacheFromDB(ctx, db, orderCache)
 	if err != nil {
 		log.Fatalf("failed to load cache from DB: %v", err)
 	}
 	log.Printf("Cache loaded with %d orders", len(orderCache.GetAll()))
-
-	// Создаем контекст для graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Канал для сигналов ОС
 	sigChan := make(chan os.Signal, 1)
@@ -84,4 +93,21 @@ func main() {
 	time.Sleep(2 * time.Second)
 
 	log.Println("Shutdown complete")
+}
+
+func runMigrations(cfg config.Config) error {
+	dsn := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", cfg.Postgres.User, cfg.Postgres.Password, cfg.Postgres.Host, cfg.Postgres.Port, cfg.Postgres.Database)
+	m, err := migrate.New("file://"+cfg.MigrationsPath, dsn)
+
+	if err != nil {
+		return fmt.Errorf("Failed to create migrate instance: %w", err)
+	}
+
+	defer m.Close()
+
+	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
+		return fmt.Errorf("Failed to run migrations: %w", err)
+	}
+	log.Println("Migrations applied successfully")
+	return nil
 }

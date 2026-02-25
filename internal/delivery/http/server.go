@@ -102,7 +102,7 @@ func (s *Server) Run() error {
 	log.Printf("Serving static files from: web/\n")
 
 	if err := http.ListenAndServe(addr, s.router); err != nil {
-		return fmt.Errorf("server failed: %v", err)
+		return fmt.Errorf("server failed: %w", err)
 	}
 
 	return nil
@@ -112,7 +112,11 @@ func (s *Server) Run() error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	log.Println("Shutting down HTTP server...")
 	if s.server != nil {
-		return s.server.Shutdown(ctx)
+		if err := s.server.Shutdown(ctx); err != nil {
+			if err != http.ErrServerClosed {
+				return fmt.Errorf("server shutdown error: %w", err)
+			}
+		}
 	}
 	return nil
 }

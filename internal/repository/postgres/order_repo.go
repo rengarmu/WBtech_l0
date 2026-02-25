@@ -25,22 +25,27 @@ func InitDB(cfg config.Config) *sql.DB {
 }
 
 // LoadCacheFromDB — восстанавливает кеш из БД при старте
-func LoadCacheFromDB(db *sql.DB, cache *cache.OrderCache) error {
-	rows, err := db.Query("SELECT order_uid FROM orders")
+func LoadCacheFromDB(ctx context.Context, db *sql.DB, cache *cache.OrderCache) error {
+	rows, err := db.QueryContext(ctx, "SELECT order_uid FROM orders")
 	if err != nil {
-		return err
+		return fmt.Errorf("query order uids: %w", err)
 	}
 	defer rows.Close()
 
 	for rows.Next() {
 		var orderUID string
 		if err := rows.Scan(&orderUID); err != nil {
-			return err
+			return fmt.Errorf("scan order_uid: %w", err)
 		}
-		order, err := GetOrderFromDB(db, orderUID)
+		order, err := GetOrderFromDB(ctx, db, orderUID)
 		if err == nil {
 			cache.Set(order)
+		} else {
+			log.Printf("Failed to load order %s from DB: %v", orderUID, err)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("rows error: %w", err)
 	}
 	return nil
 }
@@ -69,7 +74,7 @@ func SaveOrderTx(db *sql.DB, order domain.Order) error {
 		order.InternalSignature, order.CustomerID, order.DeliveryService,
 		order.Shardkey, order.SmID, order.DateCreated, order.OofShard)
 	if err != nil {
-		return err
+		return fmt.Errorf("insert order: %w", err)
 	}
 
 	// Вставляем доставку
@@ -80,7 +85,7 @@ func SaveOrderTx(db *sql.DB, order domain.Order) error {
 		order.Delivery.Zip, order.Delivery.City, order.Delivery.Address,
 		order.Delivery.Region, order.Delivery.Email)
 	if err != nil {
-		return err
+		return fmt.Errorf("insert delivery: %w", err)
 	}
 
 	// Вставляем оплату
@@ -93,7 +98,7 @@ func SaveOrderTx(db *sql.DB, order domain.Order) error {
 		order.Payment.PaymentDT, order.Payment.Bank, order.Payment.DeliveryCost,
 		order.Payment.GoodsTotal, order.Payment.CustomFee)
 	if err != nil {
-		return err
+		return fmt.Errorf("insert payment: %w", err)
 	}
 
 	// Вставляем товары
@@ -106,16 +111,19 @@ func SaveOrderTx(db *sql.DB, order domain.Order) error {
 			item.Rid, item.Name, item.Sale, item.Size, item.TotalPrice,
 			item.NmID, item.Brand, item.Status)
 		if err != nil {
-			return err
+			return fmt.Errorf("insert item: %w", err)
 		}
 	}
 
 	// Фиксируем транзакцию
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+	return nil
 }
 
 // GetOrderFromDB — достает заказ по order_uid
-func GetOrderFromDB(db *sql.DB, orderUID string) (domain.Order, error) {
+func GetOrderFromDB(ctx context.Context, db *sql.DB, orderUID string) (domain.Order, error) {
 	var order domain.Order
 
 	// Проверяем валидность orderUID
@@ -124,11 +132,11 @@ func GetOrderFromDB(db *sql.DB, orderUID string) (domain.Order, error) {
 	}
 
 	// Начинаем транзакцию с уровнем изоляции Repeatable Read
-	tx, err := db.BeginTx(context.Background(), &sql.TxOptions{
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{
 		Isolation: sql.LevelRepeatableRead,
 	})
 	if err != nil {
-		return order, err
+		return order, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback() // Safe to call if tx is committed
 
@@ -141,7 +149,7 @@ func GetOrderFromDB(db *sql.DB, orderUID string) (domain.Order, error) {
 		&order.InternalSignature, &order.CustomerID, &order.DeliveryService,
 		&order.Shardkey, &order.SmID, &order.DateCreated, &order.OofShard)
 	if err != nil {
-		return order, err
+		return order, fmt.Errorf("query delivery: %w", err)
 	}
 
 	// Доставка
@@ -152,7 +160,7 @@ func GetOrderFromDB(db *sql.DB, orderUID string) (domain.Order, error) {
 		&order.Delivery.City, &order.Delivery.Address,
 		&order.Delivery.Region, &order.Delivery.Email)
 	if err != nil {
-		return order, err
+		return order, fmt.Errorf("query delivery: %w", err)
 	}
 
 	// Оплата
@@ -165,7 +173,7 @@ func GetOrderFromDB(db *sql.DB, orderUID string) (domain.Order, error) {
 		&order.Payment.Bank, &order.Payment.DeliveryCost, &order.Payment.GoodsTotal,
 		&order.Payment.CustomFee)
 	if err != nil {
-		return order, err
+		return order, fmt.Errorf("query payment: %w", err)
 	}
 
 	// Товары
@@ -174,7 +182,7 @@ func GetOrderFromDB(db *sql.DB, orderUID string) (domain.Order, error) {
                total_price, nm_id, brand, status
         FROM items WHERE order_uid=$1`, orderUID)
 	if err != nil {
-		return order, err
+		return order, fmt.Errorf("query items: %w", err)
 	}
 	defer rows.Close()
 
@@ -184,15 +192,18 @@ func GetOrderFromDB(db *sql.DB, orderUID string) (domain.Order, error) {
 		err := rows.Scan(&it.ChrtID, &it.TrackNumber, &it.Price, &it.Rid, &it.Name,
 			&it.Sale, &it.Size, &it.TotalPrice, &it.NmID, &it.Brand, &it.Status)
 		if err != nil {
-			return order, err
+			return order, fmt.Errorf("scan item: %w", err)
 		}
 		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return order, fmt.Errorf("items iteration: %w", err) // FIXED: wrapped error
 	}
 	order.Items = items
 
 	// Фиксируем транзакцию
 	if err := tx.Commit(); err != nil {
-		return order, err
+		return order, fmt.Errorf("commit transaction: %w", err)
 	}
 
 	return order, nil
