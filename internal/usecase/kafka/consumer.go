@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
@@ -53,13 +54,28 @@ func ConsumeKafka(ctx context.Context, cfg config.Config, db *sql.DB, cache *cac
 			var order domain.Order
 			if err := json.Unmarshal(m.Value, &order); err != nil {
 				log.Printf("Invalid JSON, skipping: %v", err)
-				// Пропускаем некорректные сообщения, но не коммитим их
+				// Некорректные сообщения отправляем в DLQ
+				if dlqErr := sendToDLQ(ctx, dlqWriter, m, "invalid_json", err.Error()); dlqErr != nil {
+					log.Printf("Failed to send to DLQ: %v", dlqErr)
+				}
+				// Коммитим, чтобы не застревать на этом сообщении
+				if commitErr := r.CommitMessages(ctx, m); commitErr != nil {
+					log.Printf("Failed to commit message after DLQ send: %v", commitErr)
+				}
+
 				continue
 			}
 
 			// Игнорируем, если нет order_uid
 			if order.OrderUID == "" {
-				log.Printf("Message without order_uid, skipping")
+				log.Printf("Message without order_uid, sending to DLQ")
+				// Отправляем в DLQ
+				if dlqErr := sendToDLQ(ctx, dlqWriter, m, "missing_order_uid", ""); dlqErr != nil {
+					log.Printf("Failed to send to DLQ: %v", dlqErr)
+				}
+				if commitErr := r.CommitMessages(ctx, m); commitErr != nil {
+					log.Printf("Failed to commit message after DLQ send: %v", commitErr)
+				}
 				continue
 			}
 
@@ -67,7 +83,13 @@ func ConsumeKafka(ctx context.Context, cfg config.Config, db *sql.DB, cache *cac
 			err = postgres.SaveOrderTx(db, order)
 			if err != nil {
 				log.Printf("Failed to save order %s: %v", order.OrderUID, err)
-				// Не коммитим оффсет при ошибке сохранения - сообщение будет обработано повторно
+				// Отправляем в DLQ
+				if dlqErr := sendToDLQ(ctx, dlqWriter, m, "save_failed", err.Error()); dlqErr != nil {
+					log.Printf("Failed to send to DLQ: %v", dlqErr)
+				}
+				if commitErr := r.CommitMessages(ctx, m); commitErr != nil {
+					log.Printf("Failed to commit message after DLQ send: %v", commitErr)
+				}
 				continue
 			}
 
@@ -101,14 +123,18 @@ func sendToDLQ(ctx context.Context, writer *kafka.Writer, originalMsg kafka.Mess
 
 	data, err := json.Marshal(dlqMsg)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal DLQ message: %w", err)
 	}
 
-	return writer.WriteMessages(ctx, kafka.Message{
+	err = writer.WriteMessages(ctx, kafka.Message{
 		Key:   originalMsg.Key,
 		Value: data,
 		Headers: append(originalMsg.Headers,
 			kafka.Header{Key: "dlq-reason", Value: []byte(reason)},
 		),
 	})
+	if err != nil {
+		return fmt.Errorf("failed to write to DLQ: %w", err) // ИСПРАВЛЕНО: обёрнутая ошибка
+	}
+	return nil
 }

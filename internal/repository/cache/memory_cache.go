@@ -30,30 +30,16 @@ type CacheStats struct {
 }
 
 // Создаём новый кеш
-func NewOrderCache() *OrderCache {
+func NewOrderCache(defaultTTL time.Duration, maxSize int) *OrderCache {
 	cache := &OrderCache{
 		items:      make(map[string]CacheItem),
-		defaultTTL: 20 * time.Minute, // Время жизни по умолчанию
-		maxSize:    1000,             // Максимальный размер кэша
+		defaultTTL: defaultTTL, // Время жизни по умолчанию
+		maxSize:    maxSize,    // Максимальный размер кэша
 	}
 	// Фоновая очистка устаревших записей
 	go cache.cleanupExpired()
 	return cache
 
-}
-
-// Устанавливаем максимальный размер кэша
-func (c *OrderCache) SetMaxSize(size int) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.maxSize = size
-}
-
-// Устанавливаем TTL по умолчанию
-func (c *OrderCache) SetDefaultTTL(ttl time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.defaultTTL = ttl
 }
 
 // Добавляем заказ в кеш с TTL по умолчанию

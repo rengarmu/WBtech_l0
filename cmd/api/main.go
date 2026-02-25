@@ -40,9 +40,7 @@ func main() {
 	defer db.Close()
 
 	// Инициализируем кеш
-	orderCache := cache.NewOrderCache()
-	orderCache.SetDefaultTTL(cfg.Cache.DefaultTTL) // Устанавливаем TTL по умолчанию
-	orderCache.SetMaxSize(cfg.Cache.MaxSize)       // Максимум записей в кеше
+	orderCache := cache.NewOrderCache(cfg.Cache.DefaultTTL, cfg.Cache.MaxSize)
 
 	// Восстанавливаем кеш из БД
 	log.Println("Loading cache from database...")
