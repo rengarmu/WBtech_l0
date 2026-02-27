@@ -35,27 +35,41 @@
 WBtech_l0/
 ├── cmd/                             # Точки входа
 │   ├── api/                         # API сервер
+│   │   └── main.go
 │   ├── producer/                    # Kafka продюсер
+│   │   └── main.go
 │   └── seed/                        # Наполнение БД тестовыми данными
+│       └── main.go
 ├── internal/                        # Внутренние пакеты
 │   ├── config/                      # Конфигурация
+│   │   └── config.go
 │   ├── delivery/                    # HTTP обработчики
 │   │   └── http/
 │   │       ├── handler.go           # HTML обработчики
 │   │       ├── json_handler.go      # JSON API
-│   │       └── server.go            # HTTP сервер
+│   │       ├── server.go            # HTTP сервер
+│   │       ├── handler_test.go 
+│   │       └── json_handler_test.go  
 │   ├── domain/                      # Модели и интерфейсы
 │   │   ├── interfaces.go
 │   │   └── order.go
 │   ├── repository/                  # Репозитории
 │   │   ├── cache/                   # In‑memory кэш
+│   │   │   ├── memory_cache.go 
+│   │   │   └── memory_cache_test.go 
 │   │   └── postgres/                # PostgreSQL
+│   │       ├── order_repo.go 
+│   │       └── order_repo_test.go 
 │   ├── telemetry/                   # Метрики и трассировка
+│   │   └── telemetry.go
 │   └── usecase/                     # Бизнес-логика
 │       ├── kafka/
 │       │   └── consumer.go          # Kafka consumer
-│       └── order_usecase.go
+│   │   ├── order_usecase.go
+│       └── order_usecase_test.go
 ├── migrations/                      # SQL миграции
+│   ├── 0001_create_tables.up.sql
+│   └── 0001_create_tables.down.sql
 ├── web/                             # Статические файлы и шаблоны
 │   ├── index.html
 │   └── order_template.html
