@@ -1,3 +1,4 @@
+// Package config предоставляет функции для загрузки конфигурации приложения
 package config
 
 import (
@@ -7,7 +8,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Структура для хранения настроек PostgreSQL
+// PostgresConfig содержит настройки подключения к PostgreSQL
 type PostgresConfig struct {
 	Host     string
 	Port     string
@@ -16,13 +17,13 @@ type PostgresConfig struct {
 	Database string
 }
 
-// Структура для HTTP-сервера
+// HTTPServerConfig содержит настройки HTTP-сервера
 type HTTPServerConfig struct {
 	Host string
 	Port string
 }
 
-// Структура для Kafka
+// KafkaConfig содержит настройки подключения к Kafka
 type KafkaConfig struct {
 	Brokers  string
 	Topic    string
@@ -30,22 +31,29 @@ type KafkaConfig struct {
 	DLQTopic string
 }
 
-// Структура для кеша
+// CacheConfig содержит настройки in-memory кеша
 type CacheConfig struct {
 	DefaultTTL time.Duration
 	MaxSize    int
 }
 
-// Главная структура конфурации
+// TelemetryConfig настройки телеметрии (метрики и трассировка)
+type TelemetryConfig struct {
+	OTLPEndpoint string // URL для OTLP экспортера
+	MetricsPort  string // порт для экспорта метрик Prometheus
+}
+
+// Config объединяет все настройки приложения
 type Config struct {
 	Postgres       PostgresConfig
 	HTTPServer     HTTPServerConfig
 	Kafka          KafkaConfig
 	Cache          CacheConfig
 	MigrationsPath string // Путь к папке с миграциями
+	Telemetry      TelemetryConfig
 }
 
-// Загружаем конфигурацию из файла config.yaml с помощью Viper
+// LoadConfig загружает конфигурацию из YAML-файла с помощью Viper
 func LoadConfig(path string) *Config {
 	viper.SetConfigFile(path)
 	viper.AutomaticEnv() // поддержка переменных окружения
@@ -78,5 +86,9 @@ func LoadConfig(path string) *Config {
 	}
 	cfg.MigrationsPath = viper.GetString("migrations_path")
 
+	cfg.Telemetry = TelemetryConfig{
+		OTLPEndpoint: viper.GetString("telemetry.otlp_endpoint"),
+		MetricsPort:  viper.GetString("telemetry.metrics_port"),
+	}
 	return &cfg
 }

@@ -1,70 +1,61 @@
+// Package cache реализует in-memory кеширование заказов
 package cache
 
 import (
 	"sync"
 	"time"
 
-	"WBtech_l0/internal/domain"
+	"WBtech_l0/internal/domain" // импортируем domain для использования domain.CacheStats
 )
 
-// OrderCache — кеш заказов в памяти
+// OrderCache — in-memory кеш заказов
 type OrderCache struct {
 	mu         sync.RWMutex
-	items      map[string]CacheItem
+	items      map[string]Item
 	defaultTTL time.Duration
 	maxSize    int
-	stats      CacheStats
+	stats      domain.CacheStats // используем domain.CacheStats
 }
 
-// CacheItem представляет элемент кэша с временем жизни
-type CacheItem struct {
+// Item — элемент кеша с TTL
+type Item struct {
 	Order     domain.Order
 	ExpiresAt time.Time
 }
 
-// CacheStats содержит статистику использования кэша
-type CacheStats struct {
-	Hits   int64
-	Misses int64
-	Size   int
-}
-
-// Создаём новый кеш
+// NewOrderCache создаёт новый кеш
 func NewOrderCache(defaultTTL time.Duration, maxSize int) *OrderCache {
-	cache := &OrderCache{
-		items:      make(map[string]CacheItem),
-		defaultTTL: defaultTTL, // Время жизни по умолчанию
-		maxSize:    maxSize,    // Максимальный размер кэша
+	c := &OrderCache{
+		items:      make(map[string]Item),
+		defaultTTL: defaultTTL,
+		maxSize:    maxSize,
 	}
-	// Фоновая очистка устаревших записей
-	go cache.cleanupExpired()
-	return cache
-
+	go c.cleanupExpired()
+	return c
 }
 
-// Добавляем заказ в кеш с TTL по умолчанию
-func (c *OrderCache) Set(order domain.Order) {
-	c.SetWithTTL(order, c.defaultTTL)
-}
-
-// Добавляем заказ в кеш с указанным временем жизни
+// SetWithTTL добавляет заказ с указанным временем жизни
 func (c *OrderCache) SetWithTTL(order domain.Order, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// Проверяем размер кэша и удаляем старые записи при необходимости
 	if len(c.items) >= c.maxSize {
 		c.evictOldest()
 	}
 
-	c.items[order.OrderUID] = CacheItem{
+	c.items[order.OrderUID] = Item{
 		Order:     order,
 		ExpiresAt: time.Now().Add(ttl),
 	}
 	c.stats.Size = len(c.items)
 }
 
-// Получаем заказ из кеша
+// Set добавляет заказ с TTL по умолчанию
+func (c *OrderCache) Set(order domain.Order) {
+	c.SetWithTTL(order, c.defaultTTL)
+}
+
+// Get возвращает заказ из кеша
 func (c *OrderCache) Get(orderUID string) (domain.Order, bool) {
 	c.mu.RLock()
 	item, exists := c.items[orderUID]
@@ -77,7 +68,6 @@ func (c *OrderCache) Get(orderUID string) (domain.Order, bool) {
 		return domain.Order{}, false
 	}
 
-	// Проверяем, не истекло ли время жизни
 	if time.Now().After(item.ExpiresAt) {
 		c.Delete(orderUID)
 		c.mu.Lock()
@@ -93,24 +83,22 @@ func (c *OrderCache) Get(orderUID string) (domain.Order, bool) {
 	return item.Order, true
 }
 
-// Возвращаем все неистекшие заказы из кеша
+// GetAll возвращает все неистекшие заказы
 func (c *OrderCache) GetAll() map[string]domain.Order {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	orders := make(map[string]domain.Order)
 	now := time.Now()
-
 	for uid, item := range c.items {
 		if now.Before(item.ExpiresAt) {
 			orders[uid] = item.Order
 		}
 	}
-
 	return orders
 }
 
-// Удаляем заказ из кеша
+// Delete удаляет заказ
 func (c *OrderCache) Delete(orderUID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -118,28 +106,27 @@ func (c *OrderCache) Delete(orderUID string) {
 	c.stats.Size = len(c.items)
 }
 
-// Очищаем кеш полностью
+// Clear очищает кеш
 func (c *OrderCache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.items = make(map[string]CacheItem)
+	c.items = make(map[string]Item)
 	c.stats.Size = 0
 	c.stats.Hits = 0
 	c.stats.Misses = 0
 }
 
-// Возвращаем статистику использования кэша
-func (c *OrderCache) GetStats() CacheStats {
+// GetStats возвращает статистику (теперь возвращает domain.CacheStats)
+func (c *OrderCache) GetStats() domain.CacheStats {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.stats
 }
 
-// Периодическое удаление устаревших записей
+// cleanupExpired периодически удаляет просроченные записи
 func (c *OrderCache) cleanupExpired() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-
 	for range ticker.C {
 		c.mu.Lock()
 		now := time.Now()
@@ -153,18 +140,16 @@ func (c *OrderCache) cleanupExpired() {
 	}
 }
 
-// Удаляем самую старую запись при переполнении кэша
+// evictOldest удаляет самую старую запись при переполнении
 func (c *OrderCache) evictOldest() {
 	var oldestUID string
 	var oldestTime time.Time
-
 	for uid, item := range c.items {
 		if oldestTime.IsZero() || item.ExpiresAt.Before(oldestTime) {
 			oldestTime = item.ExpiresAt
 			oldestUID = uid
 		}
 	}
-
 	if oldestUID != "" {
 		delete(c.items, oldestUID)
 	}

@@ -1,14 +1,15 @@
 package httpdelivery
 
 import (
-	"database/sql"
 	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
+	"WBtech_l0/internal/domain"
 	"WBtech_l0/internal/repository/cache"
+	"WBtech_l0/internal/telemetry"
 )
 
 // JSONResponse стандартный формат ответа API
@@ -19,7 +20,7 @@ type JSONResponse struct {
 }
 
 // MakeJSONOrderHandler возвращает JSON с данными заказа
-func MakeJSONOrderHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc {
+func MakeJSONOrderHandler(usecase domain.OrderUsecase) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Устанавливаем заголовок для JSON ответа
 		w.Header().Set("Content-Type", "application/json")
@@ -37,8 +38,10 @@ func MakeJSONOrderHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc 
 			}); err != nil {
 				log.Printf("failed to encode error response: %v", err)
 			}
+			telemetry.OrdersProcessed.WithLabelValues("http", "error").Inc()
 			return
 		}
+
 		orderUID := parts[3]
 
 		// Валидация orderUID
@@ -52,12 +55,13 @@ func MakeJSONOrderHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc 
 			}); err != nil {
 				log.Printf("failed to encode error response: %v", err)
 			}
+			telemetry.OrdersProcessed.WithLabelValues("http", "error").Inc() //
 			return
 		}
 
 		// Получаем заказ
-		order, found := getOrder(r.Context(), orderUID, cache, db)
-		if !found {
+		order, err := usecase.GetOrder(r.Context(), orderUID)
+		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
 			enc := json.NewEncoder(w)
 			enc.SetIndent("", "  ")
@@ -67,8 +71,10 @@ func MakeJSONOrderHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc 
 			}); err != nil {
 				log.Printf("failed to encode error response: %v", err)
 			}
+			telemetry.OrdersProcessed.WithLabelValues("http", "error").Inc() //
 			return
 		}
+		telemetry.OrdersProcessed.WithLabelValues("http", "success").Inc()
 
 		// Всегда форматированный вывод
 		enc := json.NewEncoder(w)
@@ -83,7 +89,7 @@ func MakeJSONOrderHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc 
 }
 
 // MakeJSONHealthHandler возвращает статус сервиса
-func MakeJSONHealthHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc {
+func MakeJSONHealthHandler(cache *cache.OrderCache, db DBPinger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -91,6 +97,7 @@ func MakeJSONHealthHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc
 		dbStatus := "ok"
 		if err := db.PingContext(r.Context()); err != nil {
 			dbStatus = "error"
+			log.Printf("Health check DB ping failed: %v", err)
 		}
 
 		// Получаем статистику кеша
@@ -109,6 +116,8 @@ func MakeJSONHealthHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc
 			"timestamp": time.Now().Unix(),
 		}
 
-		json.NewEncoder(w).Encode(response)
+		if err := json.NewEncoder(w).Encode(response); err != nil {
+			log.Printf("failed to encode response: %v", err)
+		}
 	}
 }

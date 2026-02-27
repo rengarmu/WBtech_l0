@@ -1,10 +1,12 @@
+// Package main - утилита для наполнения базы данных тестовыми заказами
+// Может также отправлять их в Kafka
 package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"log"
 	"time"
 
@@ -36,21 +38,21 @@ func main() {
 	log.Printf("Config loaded from: %s", configPath)
 
 	// Подключаемся к базе данных
-	db := postgres.InitDB(*cfg)
+	repo := postgres.InitDB(*cfg)
 	defer func() {
-		log.Println("Closing database connection...")
-		db.Close()
+		if err := repo.Close(); err != nil {
+			log.Printf("failed to close repository: %v", err)
+		}
 	}()
 
 	// Опционально очищаем существующие данные
 	if clearExisting {
 		log.Println("Clearing existing data...")
-		if err := clearDatabase(db); err != nil {
-			log.Fatalf("Failed to clear database: %v", err)
+		if err := repo.ClearAll(context.Background()); err != nil {
+			log.Fatalf("Failed to clear database: %v", err) //nolint:gocritic
 		}
 		log.Println("Database cleared")
 	}
-
 	// Создаем тестовые заказы
 	log.Printf("Creating %d test orders...", numOrders)
 	orders := make([]domain.Order, 0, numOrders)
@@ -60,7 +62,7 @@ func main() {
 		orders = append(orders, order)
 
 		// Сохраняем в БД
-		err := postgres.SaveOrderTx(db, order)
+		err := repo.SaveOrder(context.Background(), order)
 		if err != nil {
 			log.Printf("Failed to save order %s: %v", order.OrderUID, err)
 			continue
@@ -166,24 +168,6 @@ func generateDigits(n int) string {
 	return string(result)
 }
 
-// clearDatabase очищает все таблицы
-func clearDatabase(db *sql.DB) error {
-	tables := []string{"items", "payments", "deliveries", "orders"}
-
-	for _, table := range tables {
-		if _, err := db.Exec("DELETE FROM " + table); err != nil {
-			return err
-		}
-	}
-
-	// Сбрасываем последовательности для PostgreSQL
-	if _, err := db.Exec("ALTER SEQUENCE items_id_seq RESTART WITH 1"); err != nil {
-		// Игнорируем ошибку, если последовательности нет
-	}
-
-	return nil
-}
-
 // sendOrdersToKafka отправляет заказы в Kafka
 func sendOrdersToKafka(cfg *config.Config, orders []domain.Order) error {
 	// Настройка Kafka writer
@@ -195,14 +179,18 @@ func sendOrdersToKafka(cfg *config.Config, orders []domain.Order) error {
 		BatchSize:    100,
 		RequiredAcks: kafka.RequireAll,
 	}
-	defer w.Close()
+	defer func() {
+		if err := w.Close(); err != nil {
+			log.Printf("failed to close Kafka writer: %v", err)
+		}
+	}()
 
 	// Создаем сообщения
 	messages := make([]kafka.Message, 0, len(orders))
 	for _, order := range orders {
 		value, err := json.Marshal(order)
 		if err != nil {
-			return err
+			return fmt.Errorf("marshal order %s: %w", order.OrderUID, err)
 		}
 
 		messages = append(messages, kafka.Message{
@@ -222,6 +210,8 @@ func sendOrdersToKafka(cfg *config.Config, orders []domain.Order) error {
 	// Отправляем сообщения
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-
-	return w.WriteMessages(ctx, messages...)
+	if err := w.WriteMessages(ctx, messages...); err != nil {
+		return fmt.Errorf("write messages to Kafka: %w", err)
+	}
+	return nil
 }

@@ -1,3 +1,5 @@
+// Package main - утилита для отправки тестовых сообщений в Kafka
+// Позволяет генерировать как валидные, так и невалидные заказы
 package main
 
 import (
@@ -7,7 +9,8 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"WBtech_l0/internal/config"
@@ -28,6 +31,9 @@ func main() {
 
 	cfg := config.LoadConfig(*configPath)
 
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
 	writer := kafka.NewWriter(kafka.WriterConfig{
 		Brokers:      []string{cfg.Kafka.Brokers},
 		Topic:        cfg.Kafka.Topic,
@@ -35,7 +41,11 @@ func main() {
 		RequiredAcks: int(kafka.RequireOne),
 		Async:        false,
 	})
-	defer writer.Close()
+	defer func() {
+		if err := writer.Close(); err != nil {
+			log.Printf("failed to close Kafka writer: %v", err)
+		}
+	}()
 
 	log.Printf("Producer started, sending %d %s message(s) to topic %s every %v",
 		*count, *msgType, cfg.Kafka.Topic, *interval)
@@ -44,7 +54,7 @@ func main() {
 		// Генерируем сообщение и отдельно получаем orderUID для ключа
 		msgData, orderUID, err := generateMessage(*msgType)
 		if err != nil {
-			log.Fatalf("Failed to generate message: %v", err)
+			log.Fatalf("Failed to generate message: %v", err) //nolint:gocritic
 		}
 
 		// Определяем ключ (для невалидных сообщений может быть пустым)
@@ -54,7 +64,7 @@ func main() {
 		}
 
 		// Отправляем
-		err = writer.WriteMessages(context.Background(), kafka.Message{
+		err = writer.WriteMessages(ctx, kafka.Message{
 			Key:   key,
 			Value: msgData,
 		})
@@ -62,6 +72,13 @@ func main() {
 			log.Printf("Failed to send message %d: %v", i+1, err)
 		} else {
 			log.Printf("Message %d sent: order_uid=%s", i+1, orderUID)
+		}
+		// Если контекст завершён (например, получен сигнал), выходим из цикла
+		select {
+		case <-ctx.Done():
+			log.Println("Shutdown signal received, stopping producer")
+			return
+		default:
 		}
 
 		time.Sleep(*interval)
@@ -118,10 +135,14 @@ func generateMessage(msgType string) (data []byte, orderUID string, err error) {
 
 // loadValidOrderTemplate загружает пример валидного заказа из файла model.json
 func loadValidOrderTemplate() domain.Order {
-	path := filepath.Join("model.json")
+	path := "model.json"
 	file, err := os.Open(path)
 	if err == nil {
-		defer file.Close()
+		defer func() {
+			if err := file.Close(); err != nil {
+				log.Printf("failed to close file: %v", err)
+			}
+		}()
 		var order domain.Order
 		if err := json.NewDecoder(file).Decode(&order); err == nil {
 			return order

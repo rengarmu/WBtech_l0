@@ -1,8 +1,7 @@
+// Package httpdelivery реализует HTTP-обработчики для веб-интерфейса и JSON API
 package httpdelivery
 
 import (
-	"context"
-	"database/sql"
 	"fmt"
 	"html/template"
 	"log"
@@ -14,8 +13,6 @@ import (
 	"unicode/utf8"
 
 	"WBtech_l0/internal/domain"
-	"WBtech_l0/internal/repository/cache"
-	"WBtech_l0/internal/repository/postgres"
 )
 
 // OrderHandlerData содержит данные для шаблона
@@ -24,7 +21,8 @@ type OrderHandlerData struct {
 	Found bool
 }
 
-func MakeOrderHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc {
+// MakeOrderHandler — HTTP обработчик с HTML‑рендерингом
+func MakeOrderHandler(usecase domain.OrderUsecase) http.HandlerFunc {
 	// Предзагружаем шаблон
 	tmpl, err := loadTemplate()
 	if err != nil {
@@ -46,38 +44,15 @@ func MakeOrderHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc {
 		}
 
 		// Получаем заказ
-		order, found := getOrder(r.Context(), orderUID, cache, db)
-		if !found {
+		order, err := usecase.GetOrder(r.Context(), orderUID)
+		if err != nil {
 			renderOrderNotFound(w, orderUID)
 			return
 		}
 
 		// Рендерим шаблон
-		renderOrderTemplate(w, tmpl, order, found)
+		renderOrderTemplate(w, tmpl, order, true)
 	}
-}
-
-// getOrder получает заказ из кеша или БД
-func getOrder(ctx context.Context, orderUID string, cache *cache.OrderCache, db *sql.DB) (domain.Order, bool) {
-	// Пробуем из кеша
-	if cachedOrder, ok := cache.Get(orderUID); ok {
-		log.Printf("Order %s found in cache", orderUID)
-		return cachedOrder, true
-	}
-
-	// Пробуем из БД
-	order, err := postgres.GetOrderFromDB(ctx, db, orderUID)
-	if err != nil {
-		if err != sql.ErrNoRows {
-			log.Printf("Error loading order %s from DB: %v", orderUID, err)
-		}
-		return domain.Order{}, false
-	}
-
-	// Сохраняем в кеш
-	cache.Set(order)
-	log.Printf("Order %s loaded from DB and cached", orderUID)
-	return order, true
 }
 
 // renderOrderTemplate рендерит шаблон с данными заказа
@@ -111,8 +86,8 @@ func isValidOrderUID(orderUID string) bool {
 	}
 
 	for _, r := range orderUID {
-		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' ||
-			r >= '0' && r <= '9' || r == '-' || r == '_') {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') &&
+			(r < '0' || r > '9') && r != '-' && r != '_' {
 			return false
 		}
 	}
@@ -180,7 +155,7 @@ var templateFunctions = template.FuncMap{
 func getTemplatePath() (string, error) {
 	// Пробуем несколько возможных путей
 	possiblePaths := []string{
-		"web/order_template.html", //запускаем из корня проекта
+		"web/order_template.html", // запускаем из корня проекта
 	}
 
 	for _, path := range possiblePaths {
@@ -205,88 +180,11 @@ func loadTemplate() (*template.Template, error) {
 
 	tmpl, err := template.New("order_template.html").Funcs(templateFunctions).ParseFiles(templatePath)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing template: %v", err)
+		return nil, fmt.Errorf("error parsing template: %w", err)
 	}
 
 	return tmpl, nil
 }
-
-// MakeOrderHandler — HTTP обработчик для получения заказа по ID с HTML-рендерингом
-// func MakeOrderHandler(cache *cache.OrderCache, db *sql.DB) http.HandlerFunc {
-// 	// Предзагружаем шаблон при старте
-// 	tmpl, err := loadTemplate()
-// 	if err != nil {
-// 		log.Printf("Warning: could not preload template: %v", err)
-// 	}
-
-// 	return func(w http.ResponseWriter, r *http.Request) {
-// 		// Извлекаем order_uid из URL
-// 		parts := strings.Split(r.URL.Path, "/")
-// 		if len(parts) < 3 {
-// 			http.Error(w, "order_uid required", http.StatusBadRequest)
-// 			return
-// 		}
-// 		orderUID := parts[2]
-
-// 		// Валидация orderUID
-// 		if !isValidOrderUID(orderUID) {
-// 			http.Error(w, "Invalid order_uid format", http.StatusBadRequest)
-// 			return
-// 		}
-
-// 		// Пробуем достать заказ из кеша
-// 		var order domain.Order
-// 		var found bool
-// 		if cachedOrder, ok := cache.Get(orderUID); ok {
-// 			order = cachedOrder
-// 			found = true
-// 		} else {
-// 			// Если в кеше нет — достаем из базы
-// 			var err error
-// 			order, err = postgres.GetOrderFromDB(db, orderUID)
-// 			if err != nil {
-// 				if err == sql.ErrNoRows {
-// 					log.Printf("Order %s not found in DB", orderUID)
-// 					// Используем шаблон для отображения ошибки
-// 					renderOrderNotFound(w, orderUID)
-// 				} else {
-// 					log.Printf("Error loading order %s from DB: %v", orderUID, err)
-// 					http.Error(w, "Internal server error", http.StatusInternalServerError)
-// 				}
-// 				return
-// 			}
-// 			// Сохраняем в кеш для ускорения следующих запросов
-// 			cache.Set(order)
-// 			found = true
-// 		}
-
-// 		// Если шаблон не был загружен при старте, пробуем загрузить сейчас
-// 		if tmpl == nil {
-// 			var err error
-// 			tmpl, err = loadTemplate()
-// 			if err != nil {
-// 				log.Printf("Error loading template: %v", err)
-// 				http.Error(w, "Internal server error", http.StatusInternalServerError)
-// 				return
-// 			}
-// 		}
-
-// 		// Создаем данные для шаблона
-// 		templateData := struct {
-// 			Order domain.Order
-// 			Found bool
-// 		}{
-// 			Order: order,
-// 			Found: found,
-// 		}
-
-// 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-// 		if err := tmpl.Execute(w, templateData); err != nil {
-// 			log.Printf("Error executing template: %v", err)
-// 			http.Error(w, "Internal server error", http.StatusInternalServerError)
-// 		}
-// 	}
-// }
 
 // renderOrderNotFound рендерит страницу с ошибкой "заказ не найден"
 func renderOrderNotFound(w http.ResponseWriter, orderUID string) {
@@ -313,5 +211,7 @@ func renderOrderNotFound(w http.ResponseWriter, orderUID string) {
 </body>
 </html>`
 
-	w.Write([]byte(html))
+	if _, err := w.Write([]byte(html)); err != nil {
+		log.Printf("failed to write response: %v", err)
+	}
 }

@@ -1,3 +1,4 @@
+// Package domain содержит основные интерфейсы и модели предметной области.
 package domain
 
 import (
@@ -86,6 +87,10 @@ func (o *Order) Validate() error {
 		if _, err := time.Parse(time.RFC3339, o.DateCreated); err != nil {
 			return errors.New("invalid date_created format, expected RFC3339")
 		}
+	}
+
+	if _, err := time.Parse(time.RFC3339, o.DateCreated); err != nil {
+		return errors.New("invalid date_created format, expected RFC3339")
 	}
 
 	// Валидация вложенных структур

@@ -1,0 +1,50 @@
+version: "2"
+
+linters:
+  enable:
+    - bodyclose
+    - errcheck
+    - gocritic
+    - govet
+    - ineffassign
+    - misspell
+    - noctx
+    - prealloc
+    - revive
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - whitespace
+  disable:
+    - cyclop
+    - forbidigo
+    - funlen
+    - gochecknoglobals
+    - gocognit
+  exclusions:
+    generated: lax
+    rules:
+      - path: (.+)\.go$
+        text: should have comment or be unexported
+      - path: (.+)\.go$
+        text: comment on exported method
+      - path: (.+)\.go$
+        text: should have comment
+    paths:
+      - vendor
+      - .git
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - vendor
+      - .git
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

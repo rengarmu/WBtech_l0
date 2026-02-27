@@ -2,7 +2,6 @@ package httpdelivery
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -10,25 +9,35 @@ import (
 	"path/filepath"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+
 	"WBtech_l0/internal/config"
+	"WBtech_l0/internal/domain"
 	"WBtech_l0/internal/repository/cache"
+	"WBtech_l0/internal/telemetry"
 )
 
+// DBPinger используется для health check, позволяет замокировать БД
+type DBPinger interface {
+	PingContext(ctx context.Context) error
+}
 type Server struct {
-	cfg    *config.Config
-	cache  *cache.OrderCache
-	db     *sql.DB
-	router *http.ServeMux
-	server *http.Server
+	cfg     *config.Config
+	usecase domain.OrderUsecase
+	db      DBPinger
+	cache   *cache.OrderCache
+	router  *http.ServeMux
+	server  *http.Server
 }
 
 // NewServer создает новый экземпляр сервера
-func NewServer(cfg *config.Config, cache *cache.OrderCache, db *sql.DB) *Server {
+func NewServer(cfg *config.Config, usecase domain.OrderUsecase, db DBPinger, cache *cache.OrderCache) *Server {
 	s := &Server{
-		cfg:    cfg,
-		cache:  cache,
-		db:     db,
-		router: http.NewServeMux(),
+		cfg:     cfg,
+		usecase: usecase,
+		db:      db,
+		cache:   cache,
+		router:  http.NewServeMux(),
 	}
 	s.setupRoutes()
 	return s
@@ -36,13 +45,31 @@ func NewServer(cfg *config.Config, cache *cache.OrderCache, db *sql.DB) *Server 
 
 // setupRoutes настраивает маршруты
 func (s *Server) setupRoutes() {
+	// Создаём middleware для измерения времени запросов (метрики)
+	metricsMiddleware := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			next.ServeHTTP(w, r)
+			duration := time.Since(start).Seconds()
+			telemetry.HTTPRequestDuration.WithLabelValues(r.URL.Path, r.Method).Observe(duration)
+		})
+	}
+
 	// HTML интерфейс (существующий)
-	s.router.HandleFunc("/order/", MakeOrderHandler(s.cache, s.db))
+	s.router.Handle("/order/", otelhttp.NewHandler(
+		metricsMiddleware(MakeOrderHandler(s.usecase)),
+		"http-request",
+	))
 
 	// JSON API (новые маршруты)
-	s.router.HandleFunc("/api/order/", MakeJSONOrderHandler(s.cache, s.db))
-	s.router.HandleFunc("/api/health", MakeJSONHealthHandler(s.cache, s.db))
-
+	s.router.Handle("/api/order/", otelhttp.NewHandler(
+		metricsMiddleware(MakeJSONOrderHandler(s.usecase)),
+		"http-request",
+	))
+	s.router.Handle("/api/health", otelhttp.NewHandler(
+		metricsMiddleware(MakeJSONHealthHandler(s.cache, s.db)),
+		"http-request",
+	))
 	//  Статические файлы и главная страница
 	s.router.HandleFunc("/", s.staticFileHandler)
 }
@@ -57,7 +84,7 @@ func (s *Server) staticFileHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Если запрос к HTML order, пропускаем его к order handler
 	if len(r.URL.Path) >= 7 && r.URL.Path[:7] == "/order/" {
-		MakeOrderHandler(s.cache, s.db)(w, r)
+		MakeOrderHandler(s.usecase)(w, r)
 		return
 	}
 
@@ -100,8 +127,7 @@ func (s *Server) Run() error {
 	log.Printf("JSON API: http://%s/api/order/{order_uid}\n", addr)
 	log.Printf("Health check: http://%s/api/health\n", addr)
 	log.Printf("Serving static files from: web/\n")
-
-	if err := http.ListenAndServe(addr, s.router); err != nil {
+	if err := s.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("server failed: %w", err)
 	}
 
